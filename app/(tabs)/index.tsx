@@ -1,9 +1,7 @@
 import { StatusBar } from "expo-status-bar";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import mqtt from "mqtt";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { db } from "../../firebaseConfig";
 
 // ─── Configurações HiveMQ ───────────────────────────────────
 const BROKER_URL = "c2acc9f739334988b6f79ef00c22f2bf.s1.eu.hivemq.cloud";
@@ -34,15 +32,19 @@ export default function HomeScreen() {
       setTemperatura(dados.temperatura);
       setUmidade(dados.umidade);
 
-      // Salva a leitura no Firestore
       try {
-        await addDoc(collection(db, "leituras"), {
+        const historico = await AsyncStorage.getItem("leituras");
+        const lista = historico ? JSON.parse(historico) : [];
+        lista.push({
           temperatura: dados.temperatura,
           umidade: dados.umidade,
-          timestamp: serverTimestamp(),
+          timestamp: new Date().toISOString(),
         });
+        // Mantém apenas as últimas 100 leituras
+        if (lista.length > 100) lista.shift();
+        await AsyncStorage.setItem("leituras", JSON.stringify(lista));
       } catch (error) {
-        console.error("Erro ao salvar no Firestore:", error);
+        console.error("Erro ao salvar:", error);
       }
     });
 
