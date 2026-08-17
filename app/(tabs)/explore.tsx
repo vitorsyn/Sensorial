@@ -1,112 +1,228 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useState } from "react";
+import {
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { LineChart } from "react-native-chart-kit";
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+const SCREEN_WIDTH = Dimensions.get("window").width;
 
-export default function TabTwoScreen() {
+// ─── Dados simulados ─────────────────────────────────────────
+// Futuramente esses dados virão do histórico salvo
+const dadosSimulados = {
+  "24h": {
+    labels: ["01:44", "05:44", "09:44", "13:44", "17:44", "21:44"],
+    temperatura: [19, 21, 24, 26, 23, 20],
+    umidade: [75, 80, 70, 68, 74, 78],
+  },
+  "7d": {
+    labels: ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
+    temperatura: [20, 22, 25, 23, 21, 24, 22],
+    umidade: [72, 75, 68, 70, 76, 73, 71],
+  },
+  "30d": {
+    labels: ["S1", "S2", "S3", "S4"],
+    temperatura: [21, 23, 22, 24],
+    umidade: [73, 70, 75, 72],
+  },
+};
+
+type Periodo = "24h" | "7d" | "30d";
+
+export default function HistoricoScreen() {
+  const [periodo, setPeriodo] = useState<Periodo>("24h");
+
+  const dados = dadosSimulados[periodo];
+
+  const tempMedia = (
+    dados.temperatura.reduce((a, b) => a + b, 0) / dados.temperatura.length
+  ).toFixed(1);
+  const umidMedia = (
+    dados.umidade.reduce((a, b) => a + b, 0) / dados.umidade.length
+  ).toFixed(1);
+  const tempMaxima = Math.max(...dados.temperatura).toFixed(1);
+  const umidMaxima = Math.max(...dados.umidade).toFixed(1);
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.titulo}>Histórico de Dados</Text>
+      <Text style={styles.subtitulo}>
+        Visualize o comportamento dos sensores ao longo do tempo
+      </Text>
+
+      {/* Filtros de período */}
+      <View style={styles.filtros}>
+        {(["24h", "7d", "30d"] as Periodo[]).map((p) => (
+          <TouchableOpacity
+            key={p}
+            style={[
+              styles.filtroBotao,
+              periodo === p && styles.filtroBotaoAtivo,
+            ]}
+            onPress={() => setPeriodo(p)}
+          >
+            <Text
+              style={[
+                styles.filtroTexto,
+                periodo === p && styles.filtroTextoAtivo,
+              ]}
+            >
+              {p === "24h"
+                ? "Últimas 24h"
+                : p === "7d"
+                  ? "Últimos 7 dias"
+                  : "Últimos 30 dias"}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Gráfico */}
+      <View style={styles.graficoContainer}>
+        <Text style={styles.graficoTitulo}>Temperatura e Umidade</Text>
+        <LineChart
+          data={{
+            labels: dados.labels,
+            datasets: [
+              {
+                data: dados.temperatura,
+                color: () => "#a78bfa",
+                strokeWidth: 2,
+              },
+              { data: dados.umidade, color: () => "#2dd4bf", strokeWidth: 2 },
+            ],
+            legend: ["Temperatura (°C)", "Umidade (%)"],
+          }}
+          width={SCREEN_WIDTH - 48}
+          height={220}
+          chartConfig={{
+            backgroundColor: "#1e1e2e",
+            backgroundGradientFrom: "#1e1e2e",
+            backgroundGradientTo: "#1e1e2e",
+            decimalPlaces: 0,
+            color: () => "#475569",
+            labelColor: () => "#94a3b8",
+            propsForDots: { r: "3" },
+            propsForBackgroundLines: { stroke: "#2d2d3e" },
+          }}
+          bezier
+          style={styles.grafico}
+          withInnerLines={true}
+          withOuterLines={false}
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+      </View>
+
+      {/* Cards de estatísticas */}
+      <View style={styles.statsGrid}>
+        <View style={styles.statCard}>
+          <Text style={styles.statLabel}>Temperatura Média</Text>
+          <Text style={styles.statValor}>{tempMedia}°C</Text>
+        </View>
+
+        <View style={styles.statCard}>
+          <Text style={styles.statLabel}>Umidade Média</Text>
+          <Text style={styles.statValor}>{umidMedia}%</Text>
+        </View>
+
+        <View style={styles.statCard}>
+          <Text style={styles.statLabel}>Temp. Máxima</Text>
+          <Text style={[styles.statValor, { color: "#a78bfa" }]}>
+            {tempMaxima}°C
+          </Text>
+        </View>
+
+        <View style={styles.statCard}>
+          <Text style={styles.statLabel}>Umidade Máxima</Text>
+          <Text style={[styles.statValor, { color: "#2dd4bf" }]}>
+            {umidMaxima}%
+          </Text>
+        </View>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
+    backgroundColor: "#0f0f1a",
   },
-  titleContainer: {
-    flexDirection: 'row',
+  content: {
+    padding: 24,
+    paddingTop: 60,
+  },
+  titulo: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#ffffff",
+    marginBottom: 6,
+  },
+  subtitulo: {
+    fontSize: 14,
+    color: "#94a3b8",
+    marginBottom: 24,
+  },
+  filtros: {
+    flexDirection: "row",
     gap: 8,
+    marginBottom: 24,
+  },
+  filtroBotao: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#1e1e2e",
+  },
+  filtroBotaoAtivo: {
+    backgroundColor: "#2dd4bf",
+  },
+  filtroTexto: {
+    color: "#94a3b8",
+    fontSize: 13,
+  },
+  filtroTextoAtivo: {
+    color: "#0f0f1a",
+    fontWeight: "bold",
+  },
+  graficoContainer: {
+    backgroundColor: "#1e1e2e",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+  },
+  graficoTitulo: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "500",
+    marginBottom: 12,
+  },
+  grafico: {
+    borderRadius: 8,
+    marginLeft: -16,
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  statCard: {
+    backgroundColor: "#1e1e2e",
+    borderRadius: 12,
+    padding: 16,
+    width: (SCREEN_WIDTH - 60) / 2,
+  },
+  statLabel: {
+    color: "#94a3b8",
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  statValor: {
+    color: "#ffffff",
+    fontSize: 28,
+    fontWeight: "bold",
   },
 });
