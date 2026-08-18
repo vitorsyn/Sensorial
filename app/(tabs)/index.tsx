@@ -2,9 +2,11 @@ import { StatusBar } from "expo-status-bar";
 import mqtt from "mqtt";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { supabase } from "../../supabaseConfig";
 
 // ─── Configurações HiveMQ ───────────────────────────────────
-const BROKER_URL = "c2acc9f739334988b6f79ef00c22f2bf.s1.eu.hivemq.cloud";
+const BROKER_URL =
+  "wss://c2acc9f739334988b6f79ef00c22f2bf.s1.eu.hivemq.cloud:8884/mqtt";
 const MQTT_USER = "sensorial";
 const MQTT_PASS = "K1k2k3k4";
 const MQTT_TOPIC = "sensorial/dados";
@@ -32,19 +34,18 @@ export default function HomeScreen() {
       setTemperatura(dados.temperatura);
       setUmidade(dados.umidade);
 
+      // Salva a leitura no Supabase
       try {
-        const historico = await AsyncStorage.getItem("leituras");
-        const lista = historico ? JSON.parse(historico) : [];
-        lista.push({
-          temperatura: dados.temperatura,
-          umidade: dados.umidade,
-          timestamp: new Date().toISOString(),
-        });
-        // Mantém apenas as últimas 100 leituras
-        if (lista.length > 100) lista.shift();
-        await AsyncStorage.setItem("leituras", JSON.stringify(lista));
+        const { error } = await supabase.from("leituras").insert([
+          {
+            temperatura: dados.temperatura,
+            umidade: dados.umidade,
+          },
+        ]);
+
+        if (error) console.error("Erro ao salvar no Supabase:", error);
       } catch (error) {
-        console.error("Erro ao salvar:", error);
+        console.error("Erro:", error);
       }
     });
 
