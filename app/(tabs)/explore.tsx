@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   ScrollView,
   StyleSheet,
@@ -8,44 +9,84 @@ import {
   View,
 } from "react-native";
 import { LineChart } from "react-native-chart-kit";
+import { supabase } from "../../supabaseConfig";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
-// ─── Dados simulados ─────────────────────────────────────────
-// Futuramente esses dados virão do histórico salvo
-const dadosSimulados = {
-  "24h": {
-    labels: ["01:44", "05:44", "09:44", "13:44", "17:44", "21:44"],
-    temperatura: [19, 21, 24, 26, 23, 20],
-    umidade: [75, 80, 70, 68, 74, 78],
-  },
-  "7d": {
-    labels: ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
-    temperatura: [20, 22, 25, 23, 21, 24, 22],
-    umidade: [72, 75, 68, 70, 76, 73, 71],
-  },
-  "30d": {
-    labels: ["S1", "S2", "S3", "S4"],
-    temperatura: [21, 23, 22, 24],
-    umidade: [73, 70, 75, 72],
-  },
+type Leitura = {
+  id: number;
+  temperatura: number;
+  umidade: number;
+  criado_em: string;
 };
 
 type Periodo = "24h" | "7d" | "30d";
 
 export default function HistoricoScreen() {
   const [periodo, setPeriodo] = useState<Periodo>("24h");
+  const [leituras, setLeituras] = useState<Leitura[]>([]);
+  const [carregando, setCarregando] = useState(true);
 
-  const dados = dadosSimulados[periodo];
+  useEffect(() => {
+    buscarLeituras();
+  }, [periodo]);
 
-  const tempMedia = (
-    dados.temperatura.reduce((a, b) => a + b, 0) / dados.temperatura.length
-  ).toFixed(1);
-  const umidMedia = (
-    dados.umidade.reduce((a, b) => a + b, 0) / dados.umidade.length
-  ).toFixed(1);
-  const tempMaxima = Math.max(...dados.temperatura).toFixed(1);
-  const umidMaxima = Math.max(...dados.umidade).toFixed(1);
+  async function buscarLeituras() {
+    setCarregando(true);
+    try {
+      // Calcular data de início com base no período
+      const agora = new Date();
+      const inicio = new Date(agora);
+      if (periodo === "24h") inicio.setHours(agora.getHours() - 24);
+      else if (periodo === "7d") inicio.setDate(agora.getDate() - 7);
+      else inicio.setDate(agora.getDate() - 30);
+
+      const { data, error } = await supabase
+        .from("leituras")
+        .select("*")
+        .gte("criado_em", inicio.toISOString())
+        .order("criado_em", { ascending: true })
+        .limit(50); // Máximo 50 pontos para o gráfico
+
+      if (error) {
+        console.error("Erro ao buscar leituras:", error.message);
+      } else {
+        setLeituras(data || []);
+      }
+    } catch (err) {
+      console.error("Erro:", err);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  // Montar labels e datasets para o gráfico
+  const labels = leituras.map((l) => {
+    const d = new Date(l.criado_em);
+    if (periodo === "24h")
+      return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+    return `${d.getDate()}/${d.getMonth() + 1}`;
+  });
+
+  // Amostrar para no máximo 6 labels no eixo X
+  const step = Math.max(1, Math.floor(leituras.length / 6));
+  const labelsAmostrados = labels.filter(
+    (_, i) => i % step === 0 || i === labels.length - 1,
+  );
+
+  const temperaturas = leituras.map((l) => l.temperatura);
+  const umidades = leituras.map((l) => l.umidade);
+
+  const tempMedia = leituras.length
+    ? (temperaturas.reduce((a, b) => a + b, 0) / leituras.length).toFixed(1)
+    : "--";
+  const umidMedia = leituras.length
+    ? (umidades.reduce((a, b) => a + b, 0) / leituras.length).toFixed(1)
+    : "--";
+  const tempMaxima = leituras.length
+    ? Math.max(...temperaturas).toFixed(1)
+    : "--";
+  const umidMaxima = leituras.length ? Math.max(...umidades).toFixed(1) : "--";
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -84,64 +125,84 @@ export default function HistoricoScreen() {
       {/* Gráfico */}
       <View style={styles.graficoContainer}>
         <Text style={styles.graficoTitulo}>Temperatura e Umidade</Text>
-        <LineChart
-          data={{
-            labels: dados.labels,
-            datasets: [
-              {
-                data: dados.temperatura,
-                color: () => "#a78bfa",
-                strokeWidth: 2,
-              },
-              { data: dados.umidade, color: () => "#2dd4bf", strokeWidth: 2 },
-            ],
-            legend: ["Temperatura (°C)", "Umidade (%)"],
-          }}
-          width={SCREEN_WIDTH - 48}
-          height={220}
-          chartConfig={{
-            backgroundColor: "#1e1e2e",
-            backgroundGradientFrom: "#1e1e2e",
-            backgroundGradientTo: "#1e1e2e",
-            decimalPlaces: 0,
-            color: () => "#475569",
-            labelColor: () => "#94a3b8",
-            propsForDots: { r: "3" },
-            propsForBackgroundLines: { stroke: "#2d2d3e" },
-          }}
-          bezier
-          style={styles.grafico}
-          withInnerLines={true}
-          withOuterLines={false}
-        />
+
+        {carregando ? (
+          <View style={styles.loading}>
+            <ActivityIndicator size="large" color="#a78bfa" />
+            <Text style={styles.loadingTexto}>Buscando dados...</Text>
+          </View>
+        ) : leituras.length === 0 ? (
+          <View style={styles.loading}>
+            <Text style={styles.loadingTexto}>
+              Nenhuma leitura neste período
+            </Text>
+          </View>
+        ) : (
+          <LineChart
+            data={{
+              labels: labelsAmostrados,
+              datasets: [
+                { data: temperaturas, color: () => "#a78bfa", strokeWidth: 2 },
+                { data: umidades, color: () => "#2dd4bf", strokeWidth: 2 },
+              ],
+              legend: ["Temperatura (°C)", "Umidade (%)"],
+            }}
+            width={SCREEN_WIDTH - 48}
+            height={220}
+            chartConfig={{
+              backgroundColor: "#1e1e2e",
+              backgroundGradientFrom: "#1e1e2e",
+              backgroundGradientTo: "#1e1e2e",
+              decimalPlaces: 1,
+              color: () => "#475569",
+              labelColor: () => "#94a3b8",
+              propsForDots: { r: "3" },
+              propsForBackgroundLines: { stroke: "#2d2d3e" },
+            }}
+            bezier
+            style={styles.grafico}
+            withInnerLines={true}
+            withOuterLines={false}
+          />
+        )}
       </View>
 
       {/* Cards de estatísticas */}
       <View style={styles.statsGrid}>
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>Temperatura Média</Text>
-          <Text style={styles.statValor}>{tempMedia}°C</Text>
+          <Text style={styles.statValor}>
+            {tempMedia}
+            {tempMedia !== "--" ? "°C" : ""}
+          </Text>
         </View>
-
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>Umidade Média</Text>
-          <Text style={styles.statValor}>{umidMedia}%</Text>
+          <Text style={styles.statValor}>
+            {umidMedia}
+            {umidMedia !== "--" ? "%" : ""}
+          </Text>
         </View>
-
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>Temp. Máxima</Text>
           <Text style={[styles.statValor, { color: "#a78bfa" }]}>
-            {tempMaxima}°C
+            {tempMaxima}
+            {tempMaxima !== "--" ? "°C" : ""}
           </Text>
         </View>
-
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>Umidade Máxima</Text>
           <Text style={[styles.statValor, { color: "#2dd4bf" }]}>
-            {umidMaxima}%
+            {umidMaxima}
+            {umidMaxima !== "--" ? "%" : ""}
           </Text>
         </View>
       </View>
+
+      {/* Total de leituras */}
+      <Text style={styles.totalLeituras}>
+        {leituras.length} leitura{leituras.length !== 1 ? "s" : ""} no período
+      </Text>
     </ScrollView>
   );
 }
@@ -204,6 +265,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginLeft: -16,
   },
+  loading: {
+    height: 180,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  loadingTexto: {
+    color: "#94a3b8",
+    fontSize: 14,
+  },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -224,5 +295,11 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 28,
     fontWeight: "bold",
+  },
+  totalLeituras: {
+    color: "#475569",
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 16,
   },
 });
