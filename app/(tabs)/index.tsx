@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
 import mqtt from "mqtt";
 import { useEffect, useState } from "react";
@@ -34,7 +35,7 @@ export default function HomeScreen() {
       setTemperatura(dados.temperatura);
       setUmidade(dados.umidade);
 
-      // Salva a leitura no Supabase
+      // Salva no Supabase
       try {
         const { error } = await supabase.from("leituras").insert([
           {
@@ -42,10 +43,24 @@ export default function HomeScreen() {
             umidade: dados.umidade,
           },
         ]);
-
-        if (error) console.error("Erro ao salvar no Supabase:", error);
+        if (error) console.error("Erro Supabase:", error.message);
       } catch (error) {
-        console.error("Erro:", error);
+        console.error("Erro ao salvar:", error);
+      }
+
+      // Salva backup local no AsyncStorage
+      try {
+        const historico = await AsyncStorage.getItem("leituras");
+        const lista = historico ? JSON.parse(historico) : [];
+        lista.push({
+          temperatura: dados.temperatura,
+          umidade: dados.umidade,
+          timestamp: new Date().toISOString(),
+        });
+        if (lista.length > 100) lista.shift();
+        await AsyncStorage.setItem("leituras", JSON.stringify(lista));
+      } catch (error) {
+        console.error("Erro AsyncStorage:", error);
       }
     });
 
@@ -62,10 +77,8 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-
       <Text style={styles.titulo}>Sensorial</Text>
 
-      {/* Indicador de conexão */}
       <View style={styles.statusRow}>
         <View
           style={[
@@ -78,7 +91,6 @@ export default function HomeScreen() {
         </Text>
       </View>
 
-      {/* Cards de leitura */}
       {temperatura === null ? (
         <View style={styles.aguardando}>
           <ActivityIndicator size="large" color="#a78bfa" />
@@ -93,7 +105,6 @@ export default function HomeScreen() {
             <Text style={styles.cardValor}>{temperatura}°</Text>
             <Text style={styles.cardLabel}>Temperatura</Text>
           </View>
-
           <View style={[styles.card, { backgroundColor: "#0369a1" }]}>
             <Text style={styles.cardIcone}>💧</Text>
             <Text style={styles.cardValor}>{umidade}%</Text>
@@ -105,7 +116,6 @@ export default function HomeScreen() {
   );
 }
 
-// ─── Estilos ─────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -127,27 +137,11 @@ const styles = StyleSheet.create({
     marginBottom: 48,
     gap: 8,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  statusTexto: {
-    color: "#94a3b8",
-    fontSize: 14,
-  },
-  aguardando: {
-    alignItems: "center",
-    gap: 16,
-  },
-  aguardandoTexto: {
-    color: "#94a3b8",
-    fontSize: 16,
-  },
-  cardsRow: {
-    flexDirection: "row",
-    gap: 16,
-  },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  statusTexto: { color: "#94a3b8", fontSize: 14 },
+  aguardando: { alignItems: "center", gap: 16 },
+  aguardandoTexto: { color: "#94a3b8", fontSize: 16 },
+  cardsRow: { flexDirection: "row", gap: 16 },
   card: {
     width: 150,
     height: 180,
@@ -157,14 +151,8 @@ const styles = StyleSheet.create({
     gap: 8,
     elevation: 8,
   },
-  cardIcone: {
-    fontSize: 40,
-  },
-  cardValor: {
-    fontSize: 42,
-    fontWeight: "bold",
-    color: "#ffffff",
-  },
+  cardIcone: { fontSize: 40 },
+  cardValor: { fontSize: 42, fontWeight: "bold", color: "#ffffff" },
   cardLabel: {
     fontSize: 14,
     color: "rgba(255,255,255,0.7)",
