@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import mqtt from "mqtt";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -10,6 +10,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useAlertas } from "../../hooks/use-alertas";
+import { useNotificacoes } from "../../hooks/use-notificacoes";
 import { supabase } from "../../supabaseConfig";
 
 type Dispositivo = {
@@ -23,19 +25,25 @@ export default function HomeScreen() {
   const [umidade, setUmidade] = useState<number | null>(null);
   const [conectado, setConectado] = useState<boolean>(false);
   const [dispositivos, setDispositivos] = useState<Dispositivo[]>([]);
-  const [dispositivoAtivo, setDispositivoAtivo] = useState<Dispositivo | null>(
-    null,
-  );
+  const [dispositivoAtivo, setDispositivoAtivo] = useState<Dispositivo | null>(null);
   const [carregandoDispositivos, setCarregandoDispositivos] = useState(true);
+  const [sensorId, setSensorId] = useState<number | null>(null);
 
-  // Busca dispositivos do usuário logado
+  // Cooldown para não disparar a mesma notificação várias vezes seguidas
+  const ultimoAlertaTemp = useRef<number>(0);
+  const ultimoAlertaUmid = useRef<number>(0);
+  const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos
+
+  const { enviarAlerta } = useNotificacoes();
+  const { alertaTempRef, alertaUmidRef, recarregar } = useAlertas(sensorId);
+
   useEffect(() => {
     buscarDispositivos();
   }, []);
 
   async function buscarDispositivos() {
     setCarregandoDispositivos(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("dispositivos")
       .select("id, nome, token_mqtt")
       .eq("ativo", true)
@@ -43,9 +51,30 @@ export default function HomeScreen() {
 
     if (data && data.length > 0) {
       setDispositivos(data);
-      setDispositivoAtivo(data[0]); // seleciona o primeiro por padrão
+      setDispositivoAtivo(data[0]);
     }
     setCarregandoDispositivos(false);
+  }
+
+  // Busca o sensor quando o dispositivo ativo muda
+  useEffect(() => {
+    if (!dispositivoAtivo) return;
+    buscarSensor(dispositivoAtivo.id);
+  }, [dispositivoAtivo]);
+
+  async function buscarSensor(dispositivoId: number) {
+    const { data } = await supabase
+      .from("sensores")
+      .select("id")
+      .eq("dispositivo_id", dispositivoId)
+      .eq("ativo", true)
+      .limit(1)
+      .single();
+
+    if (data) {
+      setSensorId(data.id);
+      recarregar(data.id);
+    }
   }
 
   // Conecta ao MQTT quando o dispositivo ativo muda
@@ -58,7 +87,6 @@ export default function HomeScreen() {
     const MQTT_PASS = "K1k2k3k4";
     const TOPIC = `sensorial/${dispositivoAtivo.token_mqtt}/dados`;
 
-    // Resetar leituras ao trocar de dispositivo
     setTemperatura(null);
     setUmidade(null);
     setConectado(false);
@@ -76,32 +104,48 @@ export default function HomeScreen() {
 
     client.on("message", async (_topic: string, message: Buffer) => {
       const dados = JSON.parse(message.toString());
-      setTemperatura(dados.temperatura);
-      setUmidade(dados.umidade);
+      const temp: number = dados.temperatura;
+      const umid: number = dados.umidade;
 
-      // Busca o sensor associado ao dispositivo ativo
-      const { data: sensores } = await supabase
-        .from("sensores")
-        .select("id")
-        .eq("dispositivo_id", dispositivoAtivo.id)
-        .eq("ativo", true)
-        .limit(1);
+      setTemperatura(temp);
+      setUmidade(umid);
 
-      const sensorId = sensores?.[0]?.id;
-      if (!sensorId) return;
+      // --- Checagem de alertas ---
+      const agora = Date.now();
+
+      const aTemp = alertaTempRef.current;
+      if (aTemp?.ativo && temp > aTemp.valor_limite) {
+        if (agora - ultimoAlertaTemp.current > COOLDOWN_MS) {
+          ultimoAlertaTemp.current = agora;
+          await enviarAlerta(
+            "🌡️ Temperatura Alta",
+            `${dispositivoAtivo.nome}: ${temp}°C — limite de ${aTemp.valor_limite}°C ultrapassado`,
+          );
+        }
+      }
+
+      const aUmid = alertaUmidRef.current;
+      if (aUmid?.ativo && umid > aUmid.valor_limite) {
+        if (agora - ultimoAlertaUmid.current > COOLDOWN_MS) {
+          ultimoAlertaUmid.current = agora;
+          await enviarAlerta(
+            "💧 Umidade Alta",
+            `${dispositivoAtivo.nome}: ${umid}% — limite de ${aUmid.valor_limite}% ultrapassado`,
+          );
+        }
+      }
+      // --- Fim checagem ---
 
       // Salva leitura no Supabase
-      try {
-        const { error } = await supabase.from("leituras").insert([
-          {
-            sensor_id: sensorId,
-            temperatura: dados.temperatura,
-            umidade: dados.umidade,
-          },
-        ]);
-        if (error) console.error("Erro ao salvar:", error.message);
-      } catch (err) {
-        console.error("Erro:", err);
+      if (sensorId) {
+        try {
+          const { error } = await supabase.from("leituras").insert([
+            { sensor_id: sensorId, temperatura: temp, umidade: umid },
+          ]);
+          if (error) console.error("Erro ao salvar:", error.message);
+        } catch (err) {
+          console.error("Erro:", err);
+        }
       }
     });
 
@@ -115,7 +159,6 @@ export default function HomeScreen() {
     };
   }, [dispositivoAtivo]);
 
-  // Sem dispositivos cadastrados
   if (!carregandoDispositivos && dispositivos.length === 0) {
     return (
       <View style={styles.container}>
@@ -149,7 +192,6 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.titulo}>Sensorial</Text>
 
-        {/* Seletor de dispositivo (se tiver mais de um) */}
         {dispositivos.length > 1 && (
           <ScrollView
             horizontal
@@ -178,7 +220,6 @@ export default function HomeScreen() {
           </ScrollView>
         )}
 
-        {/* Indicador de conexão */}
         <View style={styles.statusRow}>
           <View
             style={[
@@ -193,7 +234,6 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* Cards de leitura */}
         {carregandoDispositivos ? (
           <ActivityIndicator
             size="large"
@@ -209,15 +249,47 @@ export default function HomeScreen() {
           </View>
         ) : (
           <View style={styles.cardsRow}>
-            <View style={[styles.card, { backgroundColor: "#7c3aed" }]}>
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor:
+                    alertaTempRef.current?.ativo &&
+                    temperatura > (alertaTempRef.current?.valor_limite ?? Infinity)
+                      ? "#7f1d1d"
+                      : "#7c3aed",
+                },
+              ]}
+            >
               <Text style={styles.cardIcone}>🌡️</Text>
               <Text style={styles.cardValor}>{temperatura}°</Text>
               <Text style={styles.cardLabel}>Temperatura</Text>
+              {alertaTempRef.current?.ativo && (
+                <Text style={styles.cardLimite}>
+                  limite {alertaTempRef.current.valor_limite}°C
+                </Text>
+              )}
             </View>
-            <View style={[styles.card, { backgroundColor: "#0369a1" }]}>
+            <View
+              style={[
+                styles.card,
+                {
+                  backgroundColor:
+                    alertaUmidRef.current?.ativo &&
+                    umidade > (alertaUmidRef.current?.valor_limite ?? Infinity)
+                      ? "#0c1a2e"
+                      : "#0369a1",
+                },
+              ]}
+            >
               <Text style={styles.cardIcone}>💧</Text>
               <Text style={styles.cardValor}>{umidade}%</Text>
               <Text style={styles.cardLabel}>Umidade</Text>
+              {alertaUmidRef.current?.ativo && (
+                <Text style={styles.cardLimite}>
+                  limite {alertaUmidRef.current.valor_limite}%
+                </Text>
+              )}
             </View>
           </View>
         )}
@@ -301,11 +373,11 @@ const styles = StyleSheet.create({
   },
   card: {
     width: 150,
-    height: 180,
+    height: 190,
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
     elevation: 8,
   },
   cardIcone: { fontSize: 40 },
@@ -315,6 +387,11 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.7)",
     textTransform: "uppercase",
     letterSpacing: 1,
+  },
+  cardLimite: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.45)",
+    marginTop: 2,
   },
   semDispositivo: {
     alignItems: "center",

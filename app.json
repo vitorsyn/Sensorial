@@ -41,6 +41,14 @@
         }
       ],
       "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#7c3aed",
+          "sounds": []
+        }
+      ],
       "expo-web-browser",
       "expo-image",
       "expo-status-bar"
