@@ -1,50 +1,148 @@
-# Welcome to your Expo app 👋
+# Sensorial 🌡️
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Monitoramento de temperatura e umidade em tempo real via IoT, com alertas no smartphone.
 
-## Get started
+> Projeto de TCC — Técnico em Desenvolvimento de Sistemas · SENAI · 2026  
+> Equipe: João Vitor Silva · Dailan · Gabriela · Luis Felipe
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## Visão geral
 
-2. Start the app
+O **Sensorial** conecta sensores físicos (ESP32 + DHT22) à nuvem via protocolo MQTT e exibe os dados em um aplicativo mobile multiplataforma. Quando a temperatura ou umidade ultrapassa os limites configurados, o usuário recebe uma notificação push automática.
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+ESP32 + DHT22
+     │  MQTT over TLS (porta 8883)
+     ▼
+HiveMQ Cloud
+     │  WebSocket Secure (porta 8884)
+     ▼
+React Native App ──► Supabase (histórico + alertas)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## Funcionalidades
 
-To learn more about developing your project with Expo, look at the following resources:
+- Leitura de temperatura e umidade a cada 5 segundos
+- Transmissão segura via MQTTS (TLS)
+- Histórico de leituras persistido no Supabase (PostgreSQL)
+- Alertas configuráveis com cooldown de 5 minutos por tipo
+- Notificações push nativas (Android)
+- Cadastro e autenticação de usuários via Supabase Auth
+- Suporte a múltiplos dispositivos por conta
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## Estrutura do repositório
 
-Join our community of developers creating universal apps.
+```
+sensorial/
+├── app/                    # Telas do app (Expo Router)
+│   ├── (auth)/             # Login, cadastro, recuperação de senha
+│   └── (tabs)/             # Dashboard, explorar, configurações
+├── firmware/               # Código do ESP32
+│   ├── main.ino            # Sketch principal
+│   └── config_example.h   # Template de credenciais (copiar → config.h)
+├── supabase/               # Funções Edge e configuração do banco
+├── supabaseConfig.ts       # Cliente Supabase para o app
+└── assets/                 # Ícones e imagens
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+---
+
+## Pré-requisitos
+
+### Firmware (ESP32)
+- Arduino IDE 2.x
+- Bibliotecas: `DHT sensor library`, `PubSubClient`, `ArduinoJson`, `WiFiClientSecure`
+- Placa: ESP32 Dev Module
+
+### App (React Native)
+- Node.js 18+
+- Expo CLI (`npm install -g expo-cli`)
+- EAS CLI para builds (`npm install -g eas-cli`)
+
+---
+
+## Como rodar
+
+### 1. Firmware
+
+```bash
+# 1. Clone o repositório
+git clone https://github.com/vitorsyn/sensorial.git
+
+# 2. Copie o template de credenciais
+cp firmware/config_example.h firmware/config.h
+
+# 3. Edite firmware/config.h com suas credenciais reais:
+#    - Wi-Fi (SSID e senha)
+#    - HiveMQ (host, usuário, senha, token)
+#    - Supabase (URL e anon key)
+#    - ID do sensor
+
+# 4. Abra firmware/main.ino no Arduino IDE e carregue no ESP32
+```
+
+> ⚠️ O arquivo `config.h` está no `.gitignore` e **nunca deve ser commitado**.  
+> Use `config_example.h` como referência pública da estrutura.
+
+### 2. App
+
+```bash
+# 1. Instale dependências
+npm install
+
+# 2. Inicie em modo desenvolvimento
+npx expo start
+
+# 3. Para gerar APK (Android)
+eas build --platform android --profile preview
+```
+
+---
+
+## Variáveis de ambiente / credenciais
+
+| Onde | Arquivo | O que configurar |
+|------|---------|-----------------|
+| ESP32 | `firmware/config.h` | Wi-Fi, HiveMQ, Supabase |
+| App | `supabaseConfig.ts` | URL e anon key do Supabase |
+
+As credenciais reais **não são versionadas**. Consulte `config_example.h` para a estrutura esperada.
+
+---
+
+## Banco de dados (Supabase)
+
+5 tabelas com Row Level Security habilitado:
+
+| Tabela | Descrição |
+|--------|-----------|
+| `usuarios` | Perfis de usuário vinculados ao Auth |
+| `dispositivos` | ESP32 registrados por conta |
+| `sensores` | Sensores físicos por dispositivo |
+| `leituras` | Histórico de temperatura e umidade |
+| `alertas` | Eventos de alerta com timestamp |
+
+---
+
+## Stack
+
+| Camada | Tecnologia |
+|--------|-----------|
+| Firmware | C++ (Arduino), ESP32, DHT22 |
+| Broker MQTT | HiveMQ Cloud |
+| Backend | Supabase (PostgreSQL + Auth + Edge Functions) |
+| App mobile | React Native + Expo SDK 57 + TypeScript |
+| Roteamento | Expo Router (file-based) |
+| Notificações | expo-notifications |
+| MQTT no app | MQTT.js via WebSocket Secure |
+
+---
+
+## Licença
+
+Projeto acadêmico — SENAI 2026. Uso educacional.
